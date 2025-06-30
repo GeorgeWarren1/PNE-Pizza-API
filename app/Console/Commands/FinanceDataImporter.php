@@ -3,7 +3,6 @@
 namespace App\Console\Commands;
 
 use App\Models\DetailOrder;
-use App\Models\FinalSummary;
 use App\Models\FinanceData;
 use App\Models\FinancialView;
 use Illuminate\Console\Command;
@@ -12,35 +11,23 @@ use Carbon\Carbon;
 
 class FinanceDataImporter extends Command
 {
-    /**
-     * The name and signature of the console command.
-     *
-     * @var string
-     */
-    protected $signature = 'app:finance-data-importer {--start-date= : Start date in Y-m-d format} {--end-date= : End date in Y-m-d format} {--store= : Specific franchise store to process}';
+    protected $signature = 'app:finance-data-importer
+        {--start-date= : Start date in Y-m-d format}
+        {--end-date= : End date in Y-m-d format}
+        {--store= : Specific franchise store to process}';
 
-    /**
-     * The console command description.
-     *
-     * @var string
-     */
-    protected $description = 'Import data from FinalSummary, FinancialView, and DetailOrder models into FinanceData';
+    protected $description = 'Import and update FinanceData from related models';
 
-    /**
-     * Execute the console command.
-     */
     public function handle()
     {
-        // Get command options
         $startDate = $this->option('start-date') ? Carbon::parse($this->option('start-date')) : '2020-01-01';
         $endDate = $this->option('end-date') ? Carbon::parse($this->option('end-date')) : Carbon::now();
         $specificStore = $this->option('store');
 
-        // Get franchise stores and business dates that exist in all three tables
         $query = DB::table('financial_views as fv')
-            ->join('detail_orders as do', function($join) {
+            ->join('detail_orders as do', function ($join) {
                 $join->on('fv.franchise_store', '=', 'do.franchise_store')
-                     ->on('fv.business_date', '=', 'do.business_date');
+                    ->on('fv.business_date', '=', 'do.business_date');
             })
             ->select('fv.franchise_store', 'fv.business_date')
             ->distinct();
@@ -49,42 +36,21 @@ class FinanceDataImporter extends Command
             $query->where('fv.franchise_store', $specificStore);
         }
 
-        if ($startDate && $endDate) {
-            $query->whereBetween('fv.business_date', [$startDate, $endDate->format('Y-m-d')]);
-        }
-
+        $query->whereBetween('fv.business_date', [$startDate, $endDate->format('Y-m-d')]);
         $records = $query->get();
 
-        $this->info('Starting finance data import process...');
-        $this->info('Found ' . count($records) . ' records to process');
-        $bar = $this->output->createProgressBar(count($records));
+        $this->info('Found ' . $records->count() . ' records to process...');
+        $bar = $this->output->createProgressBar($records->count());
         $bar->start();
 
         foreach ($records as $record) {
             $franchiseStore = $record->franchise_store;
             $businessDate = $record->business_date;
 
-            // Check if data already exists for this store and date
-            $existingRecord = FinanceData::where('franchise_store', $franchiseStore)
-                ->where('business_date', $businessDate)
-                ->first();
-
-            if ($existingRecord) {
-                // Skip existing record
-                $bar->advance();
-                continue;
-            }
-
-            // Get data from all three models for this specific franchise and date
-            // Removed finalSummary query as it's not needed
-
             $financialViews = FinancialView::where('franchise_store', $franchiseStore)
-                ->where('business_date', $businessDate)
-                ->get();
-
+                ->where('business_date', $businessDate)->get();
             $detailOrders = DetailOrder::where('franchise_store', $franchiseStore)
-                ->where('business_date', $businessDate)
-                ->get();
+                ->where('business_date', $businessDate)->get();
 
             // Initialize data array with default values
 
@@ -156,24 +122,29 @@ class FinanceDataImporter extends Command
                 ->where('sub_account', 'Gift Card')
                 ->sum('amount');
             $Total_Non_Royalty_Sales = $financialViews
-            ->where('sub_account', 'Non-Royalty')
-            ->sum('amount');
+                ->where('sub_account', 'Non-Royalty')
+                ->sum('amount');
             $Total_Non_Delivery_Tips = $financialViews
-            ->where('area','Store Tips')
-            ->sum('amount');
+                ->where('area', 'Store Tips')
+                ->sum('amount');
 
-            $Sales_Tax_Food_Beverage = $detailOrders
-            ->where('order_fulfilled_method', 'Register')
-            ->sum('sales_tax');
+            // $Sales_Tax_Food_Beverage = $detailOrders
+            //     ->where('order_fulfilled_method', 'Register')
+            //     ->sum('sales_tax');
+
             $Sales_Tax_Delivery = $detailOrders
-            ->where('order_fulfilled_method', 'Delivery')
-            ->sum('sales_tax');
+                ->where('order_fulfilled_method', 'Delivery')
+                ->sum('sales_tax');
 
             $TOTAL_Sales_TaxQuantity = $financialViews
                 ->where('sub_account', 'Sales-Tax')
                 ->sum('amount');
+
+            $Sales_Tax_Food_Beverage = $TOTAL_Sales_TaxQuantity - $Sales_Tax_Delivery;
+
             $DELIVERY_Quantity = $detailOrders
                 ->where('delivery_fee', '<>', 0)
+                ->where('royalty_obligation', '!=', 0)
                 ->count();
             $Delivery_Fee = $detailOrders->sum('delivery_fee');
             $Delivery_Service_Fee = $detailOrders->sum('delivery_service_fee');
@@ -183,23 +154,34 @@ class FinanceDataImporter extends Command
                 ->sum('amount');
 
 
-            $Delivery_Late_to_Portal_Fee_Count = $detailOrders
-             ->where('delivery_fee', '<>', 0)
-             ->whereIn('order_placed_method', ['Mobile', 'Website'])
-             ->where('order_fulfilled_method', 'Delivery')
-             ->filter(function($order) {
-        if (empty($order->time_loaded_into_portal) || empty($order->promise_date)) {
-            return false;
-        }
+            $Delivery_Late_Fee_Count = $detailOrders
+                ->where('delivery_fee', '!=', 0)
+                ->whereIn('order_placed_method', ['Mobile', 'Website'])
+                ->where('order_fulfilled_method', 'Delivery')
+                ->filter(function ($order) {
+                    $loadedRaw = trim((string) $order['time_loaded_into_portal'] ?? '');
+                    $promiseRaw = trim((string) $order['promise_date'] ?? '');
 
-        $timeLoaded = Carbon::parse($order->time_loaded_into_portal);
-        $promisePlus5 = Carbon::parse($order->promise_date)->addMinutes(5);
+                    if (empty($loadedRaw) || empty($promiseRaw)) {
+                        return false;
+                    }
 
-        return $timeLoaded->greaterThan($promisePlus5);
-    })
-    ->count();
+                    try {
+                        $loadedTime = Carbon::createFromFormat('Y-m-d H:i:s', $loadedRaw);
+                        $promiseTimePlus5 = Carbon::createFromFormat('Y-m-d H:i:s', $promiseRaw)->addMinutes(5);
 
-            $Delivery_Late_to_Portal_Fee = $Delivery_Late_to_Portal_Fee_Count * 0.5;
+                        return $loadedTime->greaterThan($promiseTimePlus5);
+                    } catch (\Exception $e) {
+                        // Log::warning('Late portal fee date parse failed', [
+                        //     'loaded' => $loadedRaw,
+                        //     'promise' => $promiseRaw,
+                        //     'error' => $e->getMessage()
+                        // ]);
+                        return false;
+                    }
+                })
+                ->count();
+            $Delivery_Late_to_Portal_Fee = round($Delivery_Late_Fee_Count * 0.5, 2);
 
 
             $Delivery_Tips = $financialViews
@@ -229,26 +211,31 @@ class FinanceDataImporter extends Command
 
             $ONLINE_ORDERING_Mobile_Order_Quantity = $detailOrders
                 ->where('order_placed_method', 'Mobile')
+                ->where('royalty_obligation', '!=', 0)
                 ->count();
             $ONLINE_ORDERING_Online_Order_Quantity = $detailOrders
                 ->where('order_placed_method', 'Website')
+                ->where('royalty_obligation', '!=', 0)
                 ->count();
 
             // Agent and AI fields - not found yet in the original code
-            $ONLINE_ORDERING_Pay_In_Store =$detailOrders
-            ->whereIn('order_placed_method', ['Mobile' , 'Website'])
-            ->whereIn('order_fulfilled_method',['Register','Drive-Thru'])
-            ->Count();
+            $ONLINE_ORDERING_Pay_In_Store = $detailOrders
+                ->whereIn('order_placed_method', ['Mobile', 'Website'])
+                ->whereIn('order_fulfilled_method', ['Register', 'Drive-Thru'])
+                ->where('royalty_obligation', '!=', 0)
+                ->Count();
 
             $Agent_Pre_Paid = $detailOrders
-            ->where('order_placed_method', 'SoundHoundAgent')
-            ->where('order_fulfilled_method','Delivery')
-            ->Count();
+                ->where('order_placed_method', 'SoundHoundAgent')
+                ->where('order_fulfilled_method', 'Delivery')
+                ->where('royalty_obligation', '!=', 0)
+                ->Count();
 
             $Agent_Pay_In_Store = $detailOrders
-            ->where('order_placed_method', 'SoundHoundAgent')
-            ->whereIn('order_fulfilled_method',['Register','Drive-Thru'])
-            ->Count();
+                ->where('order_placed_method', 'SoundHoundAgent')
+                ->whereIn('order_fulfilled_method', ['Register', 'Drive-Thru'])
+                ->where('royalty_obligation', '!=', 0)
+                ->Count();
 
 
             $AI_Pre_Paid = 0;
@@ -289,8 +276,8 @@ class FinanceDataImporter extends Command
                 ->sum('amount');
 
             $Total_Non_Cash_Payments = $financialViews
-            ->where('sub_account', 'Non-Cash-Payments')
-            ->sum('amount');
+                ->where('sub_account', 'Non-Cash-Payments')
+                ->sum('amount');
 
             $Non_Cash_Payments = $Total_Non_Cash_Payments -
                 $AMEX -
@@ -299,16 +286,16 @@ class FinanceDataImporter extends Command
 
 
             $Cash_Sales = $financialViews
-            ->where('sub_account', 'Cash-Check-Deposit')
-            ->sum('amount');
+                ->where('sub_account', 'Cash-Check-Deposit')
+                ->sum('amount');
 
             $Cash_Drop = $financialViews
-            ->where('sub_account', 'Cash Drop Total')
-            ->sum('amount');
+                ->where('sub_account', 'Cash Drop Total')
+                ->sum('amount');
 
             $Tip_Drop_Total = $financialViews
-            ->where('sub_account', 'Tip Drop Total')
-            ->sum('amount');
+                ->where('sub_account', 'Tip Drop Total')
+                ->sum('amount');
 
 
             $Cash_Drop_Total = $Cash_Drop + $Tip_Drop_Total;
@@ -320,6 +307,10 @@ class FinanceDataImporter extends Command
             $Over_Short = $financialViews
                 ->where('sub_account', 'Over-Short-Operating')
                 ->sum('amount');
+
+
+                $Cash_Drop_Total = $Cash_Drop + $Over_Short;
+
             $Payouts = $financialViews
                 ->where('sub_account', 'Payouts')
                 ->sum('amount');
@@ -456,8 +447,15 @@ class FinanceDataImporter extends Command
                 'Over_Short' => $Over_Short,
                 'Payouts' => $Payouts,
             ];
+
+            $keys = [
+                'franchise_store' => $franchiseStore,
+                'business_date' => $businessDate,
+            ];
+
             // Create new FinanceData record
-            FinanceData::create($data);
+            FinanceData::updateOrCreate($keys, $data);
+
 
             $bar->advance();
         }

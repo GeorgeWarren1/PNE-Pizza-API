@@ -47,7 +47,7 @@ class DeliveryAndDiscountImporter extends Command
             $OrderRows = collect($OrderRows);
 
             // Online Discount Program calculations
-                $discountOrders = $OrderRows
+            $discountOrders = $OrderRows
                 ->where('employee', '')
                 ->where('modification_reason', '<>', '');
 
@@ -88,7 +88,9 @@ class DeliveryAndDiscountImporter extends Command
             // Delivery Order Summary calculations
             $deliveryOrders = $OrderRows
                 ->whereIn('order_placed_method', ['Mobile', 'Website'])
+                ->where('royalty_obligation', '!=', 0)
                 ->where('order_fulfilled_method', 'Delivery');
+
 
             $Oreders_count = $deliveryOrders->count();
 
@@ -105,25 +107,45 @@ class DeliveryAndDiscountImporter extends Command
             $delivery_small_order_charge = $deliveryOrders->sum('delivery_small_order_fee');
             $delivery_small_order_charge_Tax = $deliveryOrders->sum('delivery_small_order_fee_tax');
 
-             $Delivery_Late_Fee_Count =$deliveryOrders
-            ->where('delivery_fee','<>', 0)
-            ->where('put_into_portal_before_promise_time','No')
-            ->where('portal_eligible','Yes')
+            $Delivery_Late_Fee_Count = $deliveryOrders
+                ->where('delivery_fee', '!=', 0)
+                ->whereIn('order_placed_method', ['Mobile', 'Website'])
+                ->where('order_fulfilled_method', 'Delivery')
+                ->filter(function ($order) {
+                    $loadedRaw = trim((string) $order['time_loaded_into_portal'] ?? '');
+                    $promiseRaw = trim((string) $order['promise_date'] ?? '');
 
-            ->count();
+                    if (empty($loadedRaw) || empty($promiseRaw)) {
+                        return false;
+                    }
 
-            $delivery_late_charge= $Delivery_Late_Fee_Count * 0.5;
+                    try {
+                        $loadedTime = Carbon::createFromFormat('Y-m-d H:i:s', $loadedRaw);
+                        $promiseTimePlus5 = Carbon::createFromFormat('Y-m-d H:i:s', $promiseRaw)->addMinutes(5);
+
+                        return $loadedTime->greaterThan($promiseTimePlus5);
+                    } catch (\Exception $e) {
+                        // Log::warning('Late portal fee date parse failed', [
+                        //     'loaded' => $loadedRaw,
+                        //     'promise' => $promiseRaw,
+                        //     'error' => $e->getMessage()
+                        // ]);
+                        return false;
+                    }
+                })
+                ->count();
+            $Delivery_Late_to_Portal_Fee = round($Delivery_Late_Fee_Count * 0.5, 2);
 
             $Delivery_Tip_Summary = $deliveryOrders->sum('delivery_tip');
             $Delivery_Tip_Tax_Summary = $deliveryOrders->sum('delivery_tip_tax');
             $total_taxes = $deliveryOrders->sum('sales_tax');
 
 
-            $product_cost =$RO - ($delivery_Service_charges + $delivery_charges + $delivery_small_order_charge );
+            $product_cost = $RO - ($delivery_Service_charges + $delivery_charges + $delivery_small_order_charge);
 
-            $order_total =$RO + $total_taxes + $Delivery_Tip_Summary;
+            $order_total = $RO + $total_taxes + $Delivery_Tip_Summary;
 
-            $tax= $total_taxes - $delivery_Service_charges_Tax - $delivery_charges_Taxes - $delivery_small_order_charge_Tax ;
+            $tax = $total_taxes - $delivery_Service_charges_Tax - $delivery_charges_Taxes - $delivery_small_order_charge_Tax;
 
             // Third Party Marketplace calculations
             $doordash_product_costs_Marketplace = $OrderRows->where('order_placed_method', 'DoorDash')->sum('royalty_obligation');
@@ -152,7 +174,7 @@ class DeliveryAndDiscountImporter extends Command
                     'service_charges_taxes' => $delivery_Service_charges_Tax,
                     'small_order_charge' => $delivery_small_order_charge,
                     'small_order_charge_taxes' => $delivery_small_order_charge_Tax,
-                    'delivery_late_charge' => $delivery_late_charge,
+                    'delivery_late_charge' => $Delivery_Late_to_Portal_Fee,
                     'tip' => $Delivery_Tip_Summary,
                     'tip_tax' => $Delivery_Tip_Tax_Summary,
                     'total_taxes' => $total_taxes,

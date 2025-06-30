@@ -221,6 +221,8 @@ class LCReportDataService
         }
     }
 
+
+
     private function processCsvFiles($extractPath, $selectedDate)
     {
         // Log::info('Starting to process CSV files.');
@@ -253,7 +255,22 @@ class LCReportDataService
         return $allData; // data for summary building
     }
 
-    private function buildFinalSummaryFromData($data, $selectedDate)
+    /**
+     * @param array{
+     *   processCashManagement?: array,
+     *   processFinancialView?: array,
+     *   processSummaryItems?: array,
+     *   processSummarySales?: array,
+     *   processSummaryTransactions?: array,
+     *   processDetailOrders?: array,
+     *   processWaste?: array,
+     *   processOrderline?: array,
+     * } $data
+     * @param string $selectedDate
+     * @return void
+     */
+
+    private function buildFinalSummaryFromData(array $data, string $selectedDate): void
     {
 
         //  Log::info('Building final summary from in-memory data.');
@@ -311,7 +328,7 @@ class LCReportDataService
 
 
         $summaryRows = [];
-        $summaryDate = $selectedDate ?? now(); // or use your actual date
+        $summaryDate = $selectedDate ?? now();
 
         foreach ($allFranchiseStores as $store) {
 
@@ -483,15 +500,15 @@ class LCReportDataService
                 ->where('order_fulfilled_method', 'Delivery')
                 ->Sum('delivery_small_order_fee_tax');
 
-            $Delivery_Late_Fee_Count = $OrderRows
-                ->where('delivery_fee', '<>', 0)
-                ->where('put_into_portal_before_promise_time', 'No')
-                ->where('portal_eligible', 'Yes')
-                ->whereIn('order_placed_method', ['Mobile', 'Website'])
-                ->where('order_fulfilled_method', 'Delivery')
-                ->count();
+            // $Delivery_Late_Fee_Count = $OrderRows
+            //     ->where('delivery_fee', '<>', 0)
+            //     ->where('put_into_portal_before_promise_time', 'No')
+            //     ->where('portal_eligible', 'Yes')
+            //     ->whereIn('order_placed_method', ['Mobile', 'Website'])
+            //     ->where('order_fulfilled_method', 'Delivery')
+            //     ->count();
 
-            $delivery_late_charge = $Delivery_Late_Fee_Count * 0.5;
+            // $delivery_late_charge = $Delivery_Late_Fee_Count * 0.5;
 
 
 
@@ -636,9 +653,12 @@ class LCReportDataService
                 ->sum('amount');
 
 
-            $Sales_Tax_Food_Beverage = $OrderRows
-                ->where('order_fulfilled_method', 'Register')
-                ->sum('sales_tax');
+
+
+            // $Sales_Tax_Food_Beverage = $OrderRows
+            //     ->where('order_fulfilled_method', 'Register')
+            //     ->sum('sales_tax');
+
             $Sales_Tax_Delivery = $OrderRows
                 ->where('order_fulfilled_method', 'Delivery')
                 ->sum('sales_tax');
@@ -648,10 +668,14 @@ class LCReportDataService
                 ->where('sub_account', 'Sales-Tax')
                 ->sum('amount');
 
+            $Sales_Tax_Food_Beverage = $TOTAL_Sales_TaxQuantity - $Sales_Tax_Delivery;
+
 
             $DELIVERY_Quantity = $OrderRows
                 ->where('delivery_fee', '<>', 0)
+                ->where('royalty_obligation', '!=', 0)
                 ->count();
+
             $Delivery_Fee = $OrderRows->sum('delivery_fee');
             $Delivery_Service_Fee = $OrderRows->sum('delivery_service_fee');
             $Delivery_Small_Order_Fee = $OrderRows->sum('delivery_small_order_fee');
@@ -660,22 +684,39 @@ class LCReportDataService
                 ->sum('amount');
 
             $Delivery_Late_to_Portal_Fee_Count = $OrderRows
-                ->where('delivery_fee', '<>', 0)
+                ->where('delivery_fee', '!=', 0)
                 ->whereIn('order_placed_method', ['Mobile', 'Website'])
                 ->where('order_fulfilled_method', 'Delivery')
                 ->filter(function ($order) {
-                    if (empty($order->time_loaded_into_portal) || empty($order->promise_date)) {
+                    $loadedRaw = trim((string) $order['time_loaded_into_portal'] ?? '');
+                    $promiseRaw = trim((string) $order['promise_date'] ?? '');
+
+                    if (empty($loadedRaw) || empty($promiseRaw)) {
                         return false;
                     }
 
-                    $timeLoaded = Carbon::parse($order->time_loaded_into_portal);
-                    $promisePlus5 = Carbon::parse($order->promise_date)->addMinutes(5);
+                    try {
+                        $loadedTime = Carbon::createFromFormat('Y-m-d H:i:s', $loadedRaw);
+                        $promiseTimePlus5 = Carbon::createFromFormat('Y-m-d H:i:s', $promiseRaw)->addMinutes(5);
 
-                    return $timeLoaded->greaterThan($promisePlus5);
+                        return $loadedTime->greaterThan($promiseTimePlus5);
+                    } catch (\Exception $e) {
+                        Log::warning('Late portal fee date parse failed', [
+                            'loaded' => $loadedRaw,
+                            'promise' => $promiseRaw,
+                            'error' => $e->getMessage()
+                        ]);
+                        return false;
+                    }
                 })
                 ->count();
 
-            $Delivery_Late_to_Portal_Fee = $Delivery_Late_to_Portal_Fee_Count * 0.5;
+            $Delivery_Late_to_Portal_Fee = round($Delivery_Late_to_Portal_Fee_Count * 0.5, 2);
+
+            // Log::info('Late Portal Fee Summary', [
+            //     'count' => $Delivery_Late_to_Portal_Fee_Count,
+            //     'fee' => $Delivery_Late_to_Portal_Fee,
+            // ]);
 
             $Delivery_Tips = $financeRows
                 ->whereIn('sub_account', ['Delivery-Tips', 'Prepaid-Delivery-Tips'])
@@ -704,9 +745,11 @@ class LCReportDataService
 
             $ONLINE_ORDERING_Mobile_Order_Quantity = $OrderRows
                 ->where('order_placed_method', 'Mobile')
+                ->where('royalty_obligation', '!=', 0)
                 ->Count();
             $ONLINE_ORDERING_Online_Order_Quantity = $OrderRows
                 ->where('order_placed_method', 'Website')
+                ->where('royalty_obligation', '!=', 0)
                 ->Count();
             // not found yet ONLINE_ORDERING_Pay_In_Store
             /*
@@ -717,16 +760,19 @@ class LCReportDataService
             $ONLINE_ORDERING_Pay_In_Store = $OrderRows
                 ->whereIn('order_placed_method', ['Mobile', 'Website'])
                 ->whereIn('order_fulfilled_method', ['Register', 'Drive-Thru'])
+                ->where('royalty_obligation', '!=', 0)
                 ->Count();
 
             $Agent_Pre_Paid = $OrderRows
                 ->where('order_placed_method', 'SoundHoundAgent')
                 ->where('order_fulfilled_method', 'Delivery')
+                ->where('royalty_obligation', '!=', 0)
                 ->Count();
 
             $Agent_Pay_In_Store = $OrderRows
                 ->where('order_placed_method', 'SoundHoundAgent')
                 ->whereIn('order_fulfilled_method', ['Register', 'Drive-Thru'])
+                ->where('royalty_obligation', '!=', 0)
                 ->Count();
 
             $PrePaid_Cash_Orders = $financeRows
@@ -794,11 +840,13 @@ class LCReportDataService
                 ->where('sub_account', 'Tip Drop Total')
                 ->sum('amount');
 
-            $Cash_Drop_Total = $Cash_Drop + $Tip_Drop_Total;
+
 
             $Over_Short = $financeRows
                 ->where('sub_account', 'Over-Short-Operating')
                 ->sum('amount');
+
+                $Cash_Drop_Total = $Cash_Drop + $Over_Short;
 
             $Payouts = $financeRows
                 ->where('sub_account', 'Payouts')
@@ -933,7 +981,7 @@ class LCReportDataService
                     'service_charges_taxes' => $delivery_Service_charges_Tax,
                     'small_order_charge' => $delivery_small_order_charge,
                     'small_order_charge_taxes' => $delivery_small_order_charge_Tax,
-                    'delivery_late_charge' => $delivery_late_charge,
+                    'delivery_late_charge' => $Delivery_Late_to_Portal_Fee,
                     'tip' => $Delivery_Tip_Summary,
                     'tip_tax' => $Delivery_Tip_Tax_Summary,
                     'total_taxes' => $total_taxes,
@@ -1582,21 +1630,34 @@ class LCReportDataService
             return null;
         }
 
+        // Normalize whitespace and remove trailing Z
+        $normalized = preg_replace('/[\x{00A0}\s]+/u', ' ', trim(str_replace('Z', '', $dateTimeString)));
+
+        $formats = [
+            'Y-m-d\TH:i:s.u',     // ISO with microseconds
+            'Y-m-d\TH:i:s',       // ISO without microseconds
+            'm-d-Y h:i:s A',      // US format with dash
+            'm/d/Y h:i:s A',      // US format with slash
+            'n-j-Y h:i:s A',      // Variant with no leading zeros
+            'n/j/Y h:i:s A',
+        ];
+
+        foreach ($formats as $format) {
+            try {
+                return Carbon::createFromFormat($format, $normalized)->format('Y-m-d H:i:s');
+            } catch (\Exception $e) {
+                // Try next
+            }
+        }
+
+        // Fallback: Carbon::parse() as last resort
         try {
-            // Remove 'Z' if present
-            $dateTimeString = str_replace('Z', '', $dateTimeString);
-
-            // Parse the datetime string using Carbon
-            $dateTime = Carbon::parse($dateTimeString);
-
-            // Format to 'Y-m-d H:i:s' for MySQL
-            return $dateTime->format('Y-m-d H:i:s');
+            return Carbon::parse($normalized)->format('Y-m-d H:i:s');
         } catch (\Exception $e) {
             Log::error('Error parsing datetime string: ' . $dateTimeString . ' - ' . $e->getMessage());
             return null;
         }
     }
-
     // Optional method to delete the extracted files
     private function deleteDirectory($dirPath)
     {
