@@ -9,6 +9,7 @@ use App\Http\Controllers\Data\ExportChannelDataController;
 use App\Http\Controllers\Data\ExportDeliveryOrderSummaryController;
 use App\Http\Controllers\Data\OnlineDiscountProgramExporterController;
 use App\Http\Controllers\Data\ThirdPartyMarketplaceOrderExporter;
+use App\Http\Controllers\Data\ExportOrderLine;
 
 use App\Http\Controllers\Data\ExportController;
 Route::get('/final-summary-json/{start_date?}/{end_date?}/{franchise_store?}', [ExportController::class, 'getFinalSummaryJson']);
@@ -62,5 +63,7 @@ Route::middleware(ApiKeyMiddleware::class)->group(function () {
     Route::get('/export/delivery-order-summary/excel/{startDate?}/{endDate?}/{franchiseStore?}', [ExportDeliveryOrderSummaryController::class, 'exportToExcel']);
     Route::get('/export/online-discount-program/excel/{startDate?}/{endDate?}/{franchiseStore?}', [OnlineDiscountProgramExporterController::class, 'exportToExcel']);
     Route::get('/export/third-party-marketplace-orders/excel/{startDate?}/{endDate?}/{franchiseStore?}', [ThirdPartyMarketplaceOrderExporter::class, 'exportToExcel']);
+
+    Route::get('/order-line/export-excel/{start_date?}/{end_date?}/{franchise_store?}', [ExportOrderLine::class, 'exportcsv']);
 });
 
