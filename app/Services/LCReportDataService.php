@@ -1609,12 +1609,10 @@ private function readCsv($filePath)
 
         while (($row = fgetcsv($handle, 1000, ',')) !== false) {
             if (count($row) == count($normalizedHeader)) {
-                // Trim and remove spaces from each value
-                $normalizedValues = array_map(function ($value) {
-                    return str_replace(' ', '', trim($value));
-                }, $row);
+                // Just trim the row values (optional, depending on your use case)
+                $trimmedValues = array_map('trim', $row);
 
-                $normalizedRow = array_combine($normalizedHeader, $normalizedValues);
+                $normalizedRow = array_combine($normalizedHeader, $trimmedValues);
                 $data[] = $normalizedRow;
             }
         }
@@ -1624,6 +1622,7 @@ private function readCsv($filePath)
 
     return $data;
 }
+
 
 
     private function generateNonce()
