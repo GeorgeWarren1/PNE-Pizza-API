@@ -1598,22 +1598,30 @@ class LCReportDataService
 private function readCsv($filePath)
 {
     $data = [];
+
     if (($handle = fopen($filePath, 'r')) !== false) {
         $header = fgetcsv($handle, 1000, ',');
 
-        // Normalize header: lowercase and trim
+        // Normalize header: trim, lowercase, and remove all spaces
         $normalizedHeader = array_map(function ($key) {
-            return strtolower(trim($key));
+            return str_replace(' ', '', strtolower(trim($key)));
         }, $header);
 
         while (($row = fgetcsv($handle, 1000, ',')) !== false) {
             if (count($row) == count($normalizedHeader)) {
-                $normalizedRow = array_combine($normalizedHeader, $row);
+                // Trim and remove spaces from each value
+                $normalizedValues = array_map(function ($value) {
+                    return str_replace(' ', '', trim($value));
+                }, $row);
+
+                $normalizedRow = array_combine($normalizedHeader, $normalizedValues);
                 $data[] = $normalizedRow;
             }
         }
+
         fclose($handle);
     }
+
     return $data;
 }
 
