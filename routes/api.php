@@ -52,9 +52,12 @@ Route::get('/export/third-party-marketplace-orders/json/{startDate?}/{endDate?}/
 
 
 
+
 Route::middleware(ApiKeyMiddleware::class)->group(function () {
     Route::get('/export-upselling-summary/{start_date?}/{end_date?}/{franchise_store?}', [ExportUpsellingController::class, 'exportUpselling']);
-    Route::get('/hourly-sales/{start_date?}/{end_date?}/{franchise_store?}', [ExportHourlySalesController::class, 'exportHourlySales']);
+
+    Route::get('/hourly-sales/{start_date?}/{end_date?}/{hours?}/{franchise_store?}', [ExportHourlySalesController::class, 'exportHourlySales']);
+
     Route::get('/export-final-summary/{start_date?}/{end_date?}/{franchise_store?}', [ExportController::class, 'exportFinalSummary']);
     Route::get('/finance/export-excel/{start_date?}/{end_date?}/{franchise_store?}', [ExportFinanceController::class, 'exportToExcel']);
     Route::get('/export/bread-boost/excel/{start_date?}/{end_date?}/{franchise_store?}', [ExportBreadBoostController::class, 'exportExcel']);

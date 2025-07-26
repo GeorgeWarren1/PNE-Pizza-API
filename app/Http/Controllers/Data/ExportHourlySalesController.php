@@ -9,7 +9,7 @@ use App\Http\Controllers\Controller;
 
 class ExportHourlySalesController extends Controller
 {
-    public function exportHourlySales(Request $request, $startDateParam = null, $endDateParam = null, $franchiseStoreParam = null)
+    public function exportHourlySales(Request $request, $startDateParam = null, $endDateParam = null,$hoursParm= null, $franchiseStoreParam = null)
     {
         Log::info('Hourly Sales export requested', [
             'ip' => $request->ip(),
@@ -22,6 +22,23 @@ class ExportHourlySalesController extends Controller
 
         // Handle franchise store as a comma-separated list
         $franchiseStores = [];
+        $hours = [];
+
+        // hours
+        if (!empty($hoursParm)) {
+            $hours = array_map('trim', explode(',', $hoursParm));
+        } else {
+            // Try franchise_store parameter from query
+            $hoursString = $request->query('hours');
+            if (!empty($hoursString)) {
+                // Check if it's a comma-separated string
+                if (strpos($hoursString, ',') !== false) {
+                    $hours = array_map('trim', explode(',', $hoursString));
+                } else {
+                    $hours = [$hoursString];
+                }
+            }
+        }
 
         // First check if it was passed as a route parameter
         if (!empty($franchiseStoreParam)) {
@@ -44,6 +61,11 @@ class ExportHourlySalesController extends Controller
             return !empty($value) && $value !== 'null' && $value !== 'undefined';
         });
 
+        $hours = array_filter($hours, function($value) {
+            return !empty($value) && $value !== 'null' && $value !== 'undefined';
+        });
+        $hours = array_map('intval', $hours);
+
         Log::debug('Export parameters', [
             'start_date' => $startDate,
             'end_date' => $endDate,
@@ -62,6 +84,9 @@ class ExportHourlySalesController extends Controller
         // Filter by franchise_store if provided
         if (!empty($franchiseStores)) {
             $query->whereIn('franchise_store', $franchiseStores);
+        }
+        if (!empty($hours)) {
+            $query->whereIn('hour', $hours);
         }
 
         try {
