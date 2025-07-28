@@ -25,13 +25,11 @@ class ExportHourlySalesController extends Controller
         $hours = [];
 
         // hours
-        if (!empty($hoursParm)) {
-            $hours = array_map('trim', explode(',', $hoursParm));
+        if ($hoursParm !== null) {
+        $hours = array_map('trim', explode(',', $hoursParm));
         } else {
-            // Try franchise_store parameter from query
             $hoursString = $request->query('hours');
-            if (!empty($hoursString)) {
-                // Check if it's a comma-separated string
+            if ($hoursString !== null) {
                 if (strpos($hoursString, ',') !== false) {
                     $hours = array_map('trim', explode(',', $hoursString));
                 } else {
@@ -62,7 +60,7 @@ class ExportHourlySalesController extends Controller
         });
 
         $hours = array_filter($hours, function($value) {
-            return !empty($value) && $value !== 'null' && $value !== 'undefined';
+        return is_numeric($value);
         });
         $hours = array_map('intval', $hours);
 
@@ -85,8 +83,11 @@ class ExportHourlySalesController extends Controller
         if (!empty($franchiseStores)) {
             $query->whereIn('franchise_store', $franchiseStores);
         }
-        if (!empty($hours)) {
-            $query->whereIn('hour', $hours);
+
+        Log::debug('Filtering by hours:', ['hours' => $hours]);
+
+        if (!is_null($hours) && $hours !== []) {
+        $query = $this->safeWhereIn($query, 'hour', $hours);
         }
 
         try {
@@ -376,5 +377,15 @@ class ExportHourlySalesController extends Controller
                 'message' => 'Failed to export data: ' . $e->getMessage(),
             ], 500);
         }
+    }
+
+    protected function safeWhereIn($query, $column, $values)
+    {
+        if (!is_array($values) || count($values) === 0) {
+            return $query;
+        }
+
+        $placeholders = implode(',', array_fill(0, count($values), '?'));
+        return $query->whereRaw("$column IN ($placeholders)", $values);
     }
 }
