@@ -699,7 +699,7 @@ class LCReportDataService
                         $loadedTime = Carbon::createFromFormat('Y-m-d H:i:s', $loadedRaw);
                         $promiseTimePlus5 = Carbon::createFromFormat('Y-m-d H:i:s', $promiseRaw)->addMinutes(5);
 
-                        return $loadedTime->greaterThan($promiseTimePlus5);
+                        return $loadedTime->greaterThanOrEqualTo($promiseTimePlus5);
                     } catch (\Exception $e) {
                         Log::warning('Late portal fee date parse failed', [
                             'loaded' => $loadedRaw,
@@ -745,11 +745,11 @@ class LCReportDataService
 
             $ONLINE_ORDERING_Mobile_Order_Quantity = $OrderRows
                 ->where('order_placed_method', 'Mobile')
-                ->where('royalty_obligation', '!=', 0)
+            //    ->where('royalty_obligation', '!=', 0)
                 ->Count();
             $ONLINE_ORDERING_Online_Order_Quantity = $OrderRows
                 ->where('order_placed_method', 'Website')
-                ->where('royalty_obligation', '!=', 0)
+             //   ->where('royalty_obligation', '!=', 0)
                 ->Count();
             // not found yet ONLINE_ORDERING_Pay_In_Store
             /*
