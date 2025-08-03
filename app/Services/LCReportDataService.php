@@ -429,52 +429,55 @@ class LCReportDataService
 
             //******* End Of Bread_Boost *********//
 
-//******** Store HNR Transactions (fixed: count each occurrence) ********//
-$hnrOrders = $detailOrder
-    ->where('franchise_store', $store)
-    ->where('hnrOrder', 'Yes');
+    //******** Store HNR Transactions (fixed: count each occurrence) ********//
+    $hnrOrders = $detailOrder
+        ->where('franchise_store', $store)
+        ->where('hnrOrder', 'Yes');
 
-$hnrOrderIds = $hnrOrders->pluck('order_id')->unique();
+    $hnrOrderIds = $hnrOrders->pluck('order_id')->unique();
 
-$hnrOrderLines = $orderLine
-    ->where('franchise_store', $store)
-    ->whereIn('order_id', $hnrOrderIds);
+    $hnrOrderLines = $orderLine
+        ->where('franchise_store', $store)
+        ->whereIn('order_id', $hnrOrderIds);
 
-// Group by item_id and item_name
-$groupedItems = $hnrOrderLines->groupBy(function ($item) {
-    return $item['item_id'] . '|' . $item['menu_item_name'];
-});
+    // Group by item_id and item_name
+    $groupedItems = $hnrOrderLines->groupBy(function ($item) {
+        return $item['item_id'] . '|' . $item['menu_item_name'];
+    });
 
-foreach ($groupedItems as $itemKey => $lines) {
-    [$itemId, $itemName] = explode('|', $itemKey);
+    foreach ($groupedItems as $itemKey => $lines) {
+        [$itemId, $itemName] = explode('|', $itemKey);
 
-    // Count all item-level occurrences
-    $transactions = $lines->count();
+        // Count all item-level occurrences
+        if ($itemId == '105001'){
+            $transactions =$lines->pluck('order_id')->unique()->count();
+        }else{
+            $transactions = $lines->count();
+        }
+        // Filter lines where the parent order has broken_promise == 'No'
+        $promiseMetTransactions = $lines->filter(function ($line) use ($hnrOrders) {
+            $order = $hnrOrders->firstWhere('order_id', $line['order_id']);
+            return $order && strtolower($order['broken_promise']) === 'no';
+        })->count();
 
-    // Filter lines where the parent order has broken_promise == 'No'
-    $promiseMetTransactions = $lines->filter(function ($line) use ($hnrOrders) {
-        $order = $hnrOrders->firstWhere('order_id', $line['order_id']);
-        return $order && strtolower($order['broken_promise']) === 'no';
-    })->count();
+        $percentage = $transactions > 0
+            ? round(($promiseMetTransactions / $transactions) * 100, 2)
+            : 0;
 
-    $percentage = $transactions > 0
-        ? round(($promiseMetTransactions / $transactions) * 100, 2)
-        : 0;
-
-    StoreHNRTransaction::updateOrCreate(
-        [
-            'franchise_store' => $store,
-            'business_date' => $selectedDate,
-            'item_id' => $itemId,
-        ],
-        [
-            'item_name' => $itemName,
-            'transactions' => $transactions,
-            'promise_met_transactions' => $promiseMetTransactions,
-            'promise_met_percentage' => $percentage,
-        ]
-    );
-}
+        StoreHNRTransaction::updateOrCreate(
+            [
+                'franchise_store' => $store,
+                'business_date' => $selectedDate,
+                'item_id' => $itemId,
+            ],
+            [
+                'item_name' => $itemName,
+                'transactions' => $transactions,
+                'promise_met_transactions' => $promiseMetTransactions,
+                'promise_met_percentage' => $percentage,
+            ]
+        );
+    }
 //******** End Store HNR Transactions ********//
 
 

@@ -10,6 +10,7 @@ use App\Http\Controllers\Data\ExportDeliveryOrderSummaryController;
 use App\Http\Controllers\Data\OnlineDiscountProgramExporterController;
 use App\Http\Controllers\Data\ThirdPartyMarketplaceOrderExporter;
 use App\Http\Controllers\Data\ExportOrderLine;
+use App\Http\Controllers\Data\ExportHNRTransactions;
 
 use App\Http\Controllers\Data\ExportController;
 Route::get('/final-summary-json/{start_date?}/{end_date?}/{franchise_store?}', [ExportController::class, 'getFinalSummaryJson']);
@@ -51,12 +52,17 @@ Route::get('/export/third-party-marketplace-orders/csv/{startDate?}/{endDate?}/{
 Route::get('/export/third-party-marketplace-orders/json/{startDate?}/{endDate?}/{franchiseStore?}', [ThirdPartyMarketplaceOrderExporter::class, 'exportJson']);
 
 
+Route::get('/json-hourly-hot-and-ready-transactions/{start_date?}/{end_date?}/{hours?}/{franchise_store?}', [ExportHNRTransactions::class, 'Json_HourHNRTransactions']);
 
+Route::get('/json-store-hot-and-ready-transactions/{start_date?}/{end_date?}/{hours?}/{franchise_store?}', [ExportHNRTransactions::class, 'json_StoreHNRTransactions']);
 
 Route::middleware(ApiKeyMiddleware::class)->group(function () {
     Route::get('/export-upselling-summary/{start_date?}/{end_date?}/{franchise_store?}', [ExportUpsellingController::class, 'exportUpselling']);
 
     Route::get('/hourly-sales/{start_date?}/{end_date?}/{hours?}/{franchise_store?}', [ExportHourlySalesController::class, 'exportHourlySales']);
+
+    Route::get('/csv-hourly-hot-and-ready-transactions/{start_date?}/{end_date?}/{hours?}/{franchise_store?}', [ExportHNRTransactions::class, 'Csv_HourHNRTransactions']);
+    Route::get('/csv-store-hot-and-ready-transactions/{start_date?}/{end_date?}/{hours?}/{franchise_store?}', [ExportHNRTransactions::class, 'Csv_StoreHNRTransactions']);
 
     Route::get('/export-final-summary/{start_date?}/{end_date?}/{franchise_store?}', [ExportController::class, 'exportFinalSummary']);
     Route::get('/finance/export-excel/{start_date?}/{end_date?}/{franchise_store?}', [ExportFinanceController::class, 'exportToExcel']);
