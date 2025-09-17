@@ -453,6 +453,8 @@ class LCReportDataService
             $transactions =$lines->pluck('order_id')->unique()->count();
         }else{
             $transactions = $lines->count();
+             $transactions_with_CC = $lines-> where('bundle_name', 'Crazy Combo') ->count();
+
         }
         // Filter lines where the parent order has broken_promise == 'No'
         $promiseMetTransactions = $lines->filter(function ($line) use ($hnrOrders) {
@@ -473,6 +475,7 @@ class LCReportDataService
             [
                 'item_name' => $itemName,
                 'transactions' => $transactions,
+                'transactions with crazy combo' => $transactions_with_CC,
                 'promise_met_transactions' => $promiseMetTransactions,
                 'promise_met_percentage' => $percentage,
             ]
